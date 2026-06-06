@@ -1,0 +1,100 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.page-container {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(90, 58, 42, 0.08);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eee2d0;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #3d2817;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-title .el-icon {
+  color: #c69c6d;
+}
+
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: linear-gradient(135deg, #fdf8f0 0%, #f5ead7 100%);
+  border: 1px solid #e8d5b7;
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.stat-card .label {
+  font-size: 13px;
+  color: #8b6914;
+  margin-bottom: 8px;
+}
+
+.stat-card .value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #3d2817;
+}
+
+.stat-card .unit {
+  font-size: 14px;
+  color: #8b6914;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.chart-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #eee2d0;
+}
+
+.chart-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3d2817;
+  margin-bottom: 12px;
+}
+
+.tag-idle { background: #f0f9eb; color: #67c23a; border-color: #c2e7b0; }
+.tag-fermenting { background: #fdf6ec; color: #e6a23c; border-color: #f5dab1; }
+.tag-cleaning { background: #ecf5ff; color: #409eff; border-color: #b3d8ff; }
+.tag-maintenance { background: #fef0f0; color: #f56c6c; border-color: #fbc4c4; }
+.tag-premium { background: #fdf6ec; color: #cf8500; border-color: #f5dab1; }
+.tag-grade1 { background: #ecf5ff; color: #1d6fe0; border-color: #b3d8ff; }
+.tag-grade2 { background: #f4f4f5; color: #73767a; border-color: #d3d4d6; }
+.tag-substandard { background: #fef0f0; color: #d13a3a; border-color: #fbc4c4; }
