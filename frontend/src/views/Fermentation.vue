@@ -231,7 +231,7 @@
 import { ref, computed, reactive, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { batchApi, cellarPoolApi, recordApi } from '@/api'
+import { batchApi, cellarPoolApi, recordApi, statsApi } from '@/api'
 
 const batches = ref<any[]>([])
 const pools = ref<any[]>([])
@@ -293,10 +293,10 @@ const recordRules = {
 const formatDate = (s: string) => s ? s.replace('T', ' ').slice(0, 16) : '-'
 
 const loadData = async () => {
-  const [bs, ps, rs] = await Promise.all([batchApi.list(), cellarPoolApi.list(), recordApi.list()])
+  const [bs, ps, ov] = await Promise.all([batchApi.list(), cellarPoolApi.list(), statsApi.overview()])
   batches.value = bs.results
   pools.value = ps.results
-  abnormalCount.value = rs.results.filter((r: any) => r.is_abnormal).length
+  abnormalCount.value = (ov as any).batches?.abnormal_records || 0
 }
 
 const viewCurve = async (row: any) => {

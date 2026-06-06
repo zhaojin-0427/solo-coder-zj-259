@@ -231,6 +231,8 @@ class StatsViewSet(viewsets.ViewSet):
 
         total_storages = AgingStorage.objects.count()
         active_aging = AgingRecord.objects.filter(is_active=True).count()
+        abnormal_fermentation = FermentationRecord.objects.filter(is_abnormal=True).count()
+        abnormal_env = AgingEnvRecord.objects.filter(is_abnormal=True).count()
 
         return Response({
             'cellar_pools': {
@@ -242,6 +244,7 @@ class StatsViewSet(viewsets.ViewSet):
                 'total': total_batches,
                 'completed': completed_batches,
                 'fermenting': fermenting_batches,
+                'abnormal_records': abnormal_fermentation,
             },
             'wine_quality': {
                 'total': total_quality,
@@ -252,6 +255,7 @@ class StatsViewSet(viewsets.ViewSet):
             'aging': {
                 'total_storages': total_storages,
                 'active_aging': active_aging,
+                'abnormal_env_records': abnormal_env,
             },
         })
 
