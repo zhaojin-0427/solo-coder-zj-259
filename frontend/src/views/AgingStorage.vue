@@ -257,7 +257,7 @@
     <el-dialog v-model="agingTaskVisible" title="创建陈酿处置任务" width="560px">
       <el-form :model="agingTaskForm" label-width="100px" :rules="agingTaskRules" ref="agingTaskFormRef">
         <el-form-item label="库位">
-          <el-input v-model="currentStorage?.code" disabled />
+          <el-input :value="currentStorage?.code" disabled />
         </el-form-item>
         <el-form-item label="关联批次(可选)">
           <el-select v-model="agingTaskForm.batch" placeholder="关联发酵批次(可选)" clearable style="width:100%">

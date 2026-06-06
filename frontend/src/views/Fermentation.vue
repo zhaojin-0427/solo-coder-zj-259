@@ -335,11 +335,11 @@
         </el-descriptions>
       </div>
 
-      <div v-if="currentTask?.status === 'pending' || currentTask?.status === 'returned'" style="text-align:center;padding:10px 0">
+      <div v-if="currentTask && (currentTask.status === 'pending' || currentTask.status === 'returned')" style="text-align:center;padding:10px 0">
         <el-button type="primary" @click="startProcessTask">开始处置</el-button>
       </div>
 
-      <div v-if="currentTask?.status === 'processing'">
+      <div v-if="currentTask && currentTask.status === 'processing'">
         <el-form :model="handleForm" label-width="100px" :rules="handleRules" ref="handleFormRef">
           <el-form-item label="处置人" prop="disposal_person">
             <el-input v-model="handleForm.disposal_person" />
@@ -348,13 +348,9 @@
             <el-input v-model="handleForm.disposal_measures" type="textarea" :rows="4" placeholder="请填写具体处置措施..." />
           </el-form-item>
         </el-form>
-        <template #footer>
-          <el-button @click="handleTaskVisible = false">取消</el-button>
-          <el-button type="primary" @click="submitDisposal">提交处置，申请复核</el-button>
-        </template>
       </div>
 
-      <div v-if="currentTask?.status === 'completed'">
+      <div v-if="currentTask && currentTask.status === 'completed'">
         <el-form :model="reviewForm" label-width="100px" :rules="reviewRules" ref="reviewFormRef">
           <el-form-item label="复核人" prop="reviewer">
             <el-input v-model="reviewForm.reviewer" />
@@ -363,12 +359,22 @@
             <el-input v-model="reviewForm.review_opinion" type="textarea" :rows="3" placeholder="请填写复核意见..." />
           </el-form-item>
         </el-form>
-        <template #footer>
+      </div>
+
+      <template #footer>
+        <template v-if="currentTask && currentTask.status === 'processing'">
+          <el-button @click="handleTaskVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitDisposal">提交处置，申请复核</el-button>
+        </template>
+        <template v-else-if="currentTask && currentTask.status === 'completed'">
           <el-button @click="handleTaskVisible = false">取消</el-button>
           <el-button type="danger" @click="submitReview(false)">退回重办</el-button>
           <el-button type="success" @click="submitReview(true)">复核通过</el-button>
         </template>
-      </div>
+        <template v-else>
+          <el-button @click="handleTaskVisible = false">关闭</el-button>
+        </template>
+      </template>
     </el-dialog>
   </div>
 </template>
