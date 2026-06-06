@@ -245,8 +245,46 @@
             </template>
           </el-table-column>
           <el-table-column prop="notes" label="说明" show-overflow-tooltip />
+          <el-table-column label="操作" width="120" align="center">
+            <template #default="{ row }">
+              <el-button v-if="row.is_abnormal" size="small" type="warning" link @click="openAgingTask(row)">创建处置</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
+    </el-dialog>
+
+    <el-dialog v-model="agingTaskVisible" title="创建陈酿处置任务" width="560px">
+      <el-form :model="agingTaskForm" label-width="100px" :rules="agingTaskRules" ref="agingTaskFormRef">
+        <el-form-item label="库位">
+          <el-input v-model="currentStorage?.code" disabled />
+        </el-form-item>
+        <el-form-item label="关联批次(可选)">
+          <el-select v-model="agingTaskForm.batch" placeholder="关联发酵批次(可选)" clearable style="width:100%">
+            <el-option v-for="b in fermentingBatches" :key="b.id" :label="b.batch_no" :value="b.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="任务标题" prop="title">
+          <el-input v-model="agingTaskForm.title" />
+        </el-form-item>
+        <el-form-item label="风险等级" prop="risk_level">
+          <el-radio-group v-model="agingTaskForm.risk_level">
+            <el-radio-button label="low">低</el-radio-button>
+            <el-radio-button label="medium">中</el-radio-button>
+            <el-radio-button label="high">高</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="责任人" prop="responsible_person">
+          <el-input v-model="agingTaskForm.responsible_person" placeholder="酿酒师姓名" />
+        </el-form-item>
+        <el-form-item label="风险描述">
+          <el-input v-model="agingTaskForm.description" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="agingTaskVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitAgingTask">创建任务</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -256,7 +294,7 @@ import { ref, computed, onMounted, nextTick, reactive, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import { storageApi, agingRecordApi, qualityApi, envRecordApi } from '@/api'
+import { storageApi, agingRecordApi, qualityApi, envRecordApi, disposalTaskApi, batchApi } from '@/api'
 
 const activeTab = ref('storage')
 const storages = ref<any[]>([])
@@ -451,5 +489,45 @@ const renderEnvChart = () => {
   envChart.setOption(option)
 }
 
-onMounted(loadData)
+const fermentingBatches = ref<any[]>([])
+
+const agingTaskVisible = ref(false)
+const agingTaskFormRef = ref()
+const agingTaskForm = reactive<any>({
+  batch: null, storage: null, title: '', source: 'aging_env',
+  risk_level: 'medium', responsible_person: '', description: ''
+})
+const agingTaskRules = {
+  title: [{ required: true, message: '请输入任务标题', trigger: 'blur' }],
+  risk_level: [{ required: true, message: '请选择风险等级', trigger: 'change' }],
+  responsible_person: [{ required: true, message: '请输入责任人', trigger: 'blur' }],
+}
+
+const openAgingTask = (row: any) => {
+  agingTaskForm.batch = null
+  agingTaskForm.storage = currentStorage.value?.id || null
+  agingTaskForm.title = currentStorage.value?.code + ' 温湿度异常'
+  agingTaskForm.description = row.notes || ''
+  agingTaskForm.risk_level = 'medium'
+  agingTaskForm.responsible_person = ''
+  agingTaskVisible.value = true
+}
+
+const submitAgingTask = async () => {
+  await agingTaskFormRef.value.validate()
+  const payload = { ...agingTaskForm }
+  await disposalTaskApi.create(payload)
+  ElMessage.success('处置任务创建成功')
+  agingTaskVisible.value = false
+}
+
+const loadBatches = async () => {
+  const res: any = await batchApi.list({ status: 'fermenting' })
+  fermentingBatches.value = res.results
+}
+
+onMounted(async () => {
+  await loadData()
+  await loadBatches()
+})
 </script>

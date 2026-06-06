@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     CellarPool, FermentationBatch, FermentationRecord,
-    WineQuality, AgingStorage, AgingRecord, AgingEnvRecord
+    WineQuality, AgingStorage, AgingRecord, AgingEnvRecord,
+    DisposalTask
 )
 
 
@@ -22,9 +23,12 @@ class CellarPoolSerializer(serializers.ModelSerializer):
 
 class FermentationBatchSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    risk_level_display = serializers.CharField(source='get_risk_level_display', read_only=True)
+    disposal_status_display = serializers.CharField(source='get_disposal_status_display', read_only=True)
     cellar_pool_code = serializers.CharField(source='cellar_pool.code', read_only=True)
     record_count = serializers.IntegerField(read_only=True)
     latest_record = serializers.SerializerMethodField()
+    latest_disposal_task = serializers.SerializerMethodField()
 
     class Meta:
         model = FermentationBatch
@@ -34,6 +38,12 @@ class FermentationBatchSerializer(serializers.ModelSerializer):
         record = obj.records.order_by('-record_time').first()
         if record:
             return FermentationRecordSerializer(record).data
+        return None
+
+    def get_latest_disposal_task(self, obj):
+        task = obj.disposal_tasks.order_by('-created_at').first()
+        if task:
+            return DisposalTaskSerializer(task).data
         return None
 
 
@@ -94,4 +104,16 @@ class AgingEnvRecordSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AgingEnvRecord
+        fields = '__all__'
+
+
+class DisposalTaskSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    risk_level_display = serializers.CharField(source='get_risk_level_display', read_only=True)
+    batch_no = serializers.CharField(source='batch.batch_no', read_only=True, default=None)
+    storage_code = serializers.CharField(source='storage.code', read_only=True, default=None)
+
+    class Meta:
+        model = DisposalTask
         fields = '__all__'

@@ -29,6 +29,7 @@ export const batchApi = {
   delete: (id: number) => api.delete(`/batches/${id}/`),
   complete: (id: number) => api.post(`/batches/${id}/complete/`),
   curve: (id: number) => api.get(`/batches/${id}/curve/`),
+  updateRisk: (id: number, data: any) => api.post(`/batches/${id}/update_risk/`, data),
 }
 
 export const recordApi = {
@@ -72,6 +73,17 @@ export const statsApi = {
   fermentationCycle: () => api.get('/stats/fermentation_cycle/'),
   agingLoss: () => api.get('/stats/aging_loss/'),
   monthlyOutput: () => api.get('/stats/monthly_output/'),
+  disposalStats: () => api.get('/stats/disposal_stats/'),
+}
+
+export const disposalTaskApi = {
+  list: (params?: any) => api.get<any, ListResp<any>>('/disposal-tasks/', { params: { page_size: 200, ...params } }),
+  create: (data: any) => api.post('/disposal-tasks/', data),
+  update: (id: number, data: any) => api.put(`/disposal-tasks/${id}/`, data),
+  delete: (id: number) => api.delete(`/disposal-tasks/${id}/`),
+  startProcess: (id: number, data?: any) => api.post(`/disposal-tasks/${id}/start_process/`, data || {}),
+  submitDisposal: (id: number, data: any) => api.post(`/disposal-tasks/${id}/submit_disposal/`, data),
+  review: (id: number, data: any) => api.post(`/disposal-tasks/${id}/review/`, data),
 }
 
 export default api

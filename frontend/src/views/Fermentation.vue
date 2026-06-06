@@ -30,6 +30,14 @@
           <div class="value" style="color:#f56c6c">{{ abnormalCount }}<span class="unit">条</span></div>
         </div>
         <div class="stat-card">
+          <div class="label">待处置任务</div>
+          <div class="value" style="color:#e6a23c">{{ pendingTasks }}<span class="unit">个</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">高风险批次</div>
+          <div class="value" style="color:#e74c3c">{{ highRiskCount }}<span class="unit">个</span></div>
+        </div>
+        <div class="stat-card">
           <div class="label">总检测次数</div>
           <div class="value">{{ recordCount }}<span class="unit">次</span></div>
         </div>
@@ -40,6 +48,20 @@
           <el-option label="发酵中" value="fermenting" />
           <el-option label="已出酒" value="completed" />
           <el-option label="已终止" value="aborted" />
+        </el-select>
+        <el-select v-model="filterRisk" placeholder="风险等级" clearable style="width:160px">
+          <el-option label="无风险" value="none" />
+          <el-option label="低风险" value="low" />
+          <el-option label="中风险" value="medium" />
+          <el-option label="高风险" value="high" />
+        </el-select>
+        <el-select v-model="filterDisposal" placeholder="处置状态" clearable style="width:160px">
+          <el-option label="无需处置" value="none" />
+          <el-option label="待处置" value="pending" />
+          <el-option label="处置中" value="processing" />
+          <el-option label="待复核" value="completed" />
+          <el-option label="复核通过" value="reviewed" />
+          <el-option label="复核退回" value="returned" />
         </el-select>
         <el-select v-model="selectedBatch" placeholder="选择批次查看曲线" clearable style="width:240px" @change="loadCurve">
           <el-option v-for="b in batches" :key="b.id" :label="b.batch_no + ' - ' + b.cellar_pool_code" :value="b.id" />
@@ -70,6 +92,27 @@
             <el-tag :class="'tag-' + row.status" effect="light">{{ row.status_display }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="风险等级" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.risk_level === 'high'" type="danger" effect="dark">高风险</el-tag>
+            <el-tag v-else-if="row.risk_level === 'medium'" type="warning" effect="light">中风险</el-tag>
+            <el-tag v-else-if="row.risk_level === 'low'" type="info" effect="light">低风险</el-tag>
+            <el-tag v-else type="success" effect="plain">无风险</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="处置状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.disposal_status === 'pending'" type="warning" effect="dark">待处置</el-tag>
+            <el-tag v-else-if="row.disposal_status === 'processing'" type="primary" effect="light">处置中</el-tag>
+            <el-tag v-else-if="row.disposal_status === 'completed'" type="info" effect="light">待复核</el-tag>
+            <el-tag v-else-if="row.disposal_status === 'reviewed'" type="success" effect="light">复核通过</el-tag>
+            <el-tag v-else-if="row.disposal_status === 'returned'" type="danger" effect="light">退回</el-tag>
+            <span v-else style="color:#999">无需处置</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="责任人" width="100">
+          <template #default="{ row }">{{ row.responsible_person || '-' }}</template>
+        </el-table-column>
         <el-table-column label="最新检测" width="200">
           <template #default="{ row }">
             <div v-if="row.latest_record" style="font-size:12px;line-height:1.6">
@@ -80,10 +123,16 @@
             <span v-else style="color:#999">暂无</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" align="center" fixed="right">
+        <el-table-column label="操作" width="360" align="center" fixed="right">
           <template #default="{ row }">
             <el-button size="small" link type="primary" @click="viewCurve(row)">查看曲线</el-button>
             <el-button size="small" link type="success" @click="openRecordDialog(row)">检测</el-button>
+            <el-button v-if="row.latest_record?.is_abnormal || row.risk_level !== 'none'" size="small" link type="warning" @click="openCreateTask(row)">
+              创建处置
+            </el-button>
+            <el-button v-if="row.latest_disposal_task" size="small" link type="primary" @click="openHandleTask(row.latest_disposal_task)">
+              处理任务
+            </el-button>
             <el-button v-if="row.status==='fermenting'" size="small" link type="warning" @click="completeBatch(row)">完成</el-button>
             <el-button size="small" link type="danger" @click="removeBatch(row)">删除</el-button>
           </template>
@@ -224,18 +273,117 @@
         <el-button type="primary" @click="submitRecord">提交检测</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="createTaskVisible" title="创建处置任务" width="560px">
+      <el-form :model="taskForm" label-width="100px" :rules="taskRules" ref="taskFormRef">
+        <el-form-item label="关联批次">
+          <el-input v-model="taskBatchDisplay" disabled />
+        </el-form-item>
+        <el-form-item label="任务标题" prop="title">
+          <el-input v-model="taskForm.title" placeholder="简要描述问题" />
+        </el-form-item>
+        <el-form-item label="风险来源" prop="source">
+          <el-select v-model="taskForm.source" style="width:100%">
+            <el-option label="发酵检测异常" value="fermentation" />
+            <el-option label="陈酿温湿度异常" value="aging_env" />
+            <el-option label="人工创建" value="manual" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="风险等级" prop="risk_level">
+          <el-radio-group v-model="taskForm.risk_level">
+            <el-radio-button label="low">低</el-radio-button>
+            <el-radio-button label="medium">中</el-radio-button>
+            <el-radio-button label="high">高</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="责任人" prop="responsible_person">
+          <el-input v-model="taskForm.responsible_person" placeholder="酿酒师姓名" />
+        </el-form-item>
+        <el-form-item label="风险描述">
+          <el-input v-model="taskForm.description" type="textarea" :rows="3" placeholder="描述异常情况..." />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createTaskVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitCreateTask">创建任务</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="handleTaskVisible" :title="'处置任务 - ' + (currentTask?.task_no || '')" width="600px">
+      <div v-if="currentTask" style="margin-bottom:16px">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="任务编号">{{ currentTask.task_no }}</el-descriptions-item>
+          <el-descriptions-item label="风险来源">{{ currentTask.source_display }}</el-descriptions-item>
+          <el-descriptions-item label="风险等级">
+            <el-tag v-if="currentTask.risk_level === 'high'" type="danger">高风险</el-tag>
+            <el-tag v-else-if="currentTask.risk_level === 'medium'" type="warning">中风险</el-tag>
+            <el-tag v-else type="info">低风险</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag v-if="currentTask.status === 'pending'" type="warning">待处置</el-tag>
+            <el-tag v-else-if="currentTask.status === 'processing'" type="primary">处置中</el-tag>
+            <el-tag v-else-if="currentTask.status === 'completed'" type="info">待复核</el-tag>
+            <el-tag v-else-if="currentTask.status === 'reviewed'" type="success">复核通过</el-tag>
+            <el-tag v-else type="danger">退回</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="责任人">{{ currentTask.responsible_person || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatDate(currentTask.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="任务标题" :span="2">{{ currentTask.title }}</el-descriptions-item>
+          <el-descriptions-item label="风险描述" :span="2">{{ currentTask.description || '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="currentTask.disposal_measures" label="处置措施" :span="2">{{ currentTask.disposal_measures }}</el-descriptions-item>
+          <el-descriptions-item v-if="currentTask.review_opinion" label="复核意见" :span="2">{{ currentTask.review_opinion }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <div v-if="currentTask?.status === 'pending' || currentTask?.status === 'returned'" style="text-align:center;padding:10px 0">
+        <el-button type="primary" @click="startProcessTask">开始处置</el-button>
+      </div>
+
+      <div v-if="currentTask?.status === 'processing'">
+        <el-form :model="handleForm" label-width="100px" :rules="handleRules" ref="handleFormRef">
+          <el-form-item label="处置人" prop="disposal_person">
+            <el-input v-model="handleForm.disposal_person" />
+          </el-form-item>
+          <el-form-item label="处置措施" prop="disposal_measures">
+            <el-input v-model="handleForm.disposal_measures" type="textarea" :rows="4" placeholder="请填写具体处置措施..." />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="handleTaskVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitDisposal">提交处置，申请复核</el-button>
+        </template>
+      </div>
+
+      <div v-if="currentTask?.status === 'completed'">
+        <el-form :model="reviewForm" label-width="100px" :rules="reviewRules" ref="reviewFormRef">
+          <el-form-item label="复核人" prop="reviewer">
+            <el-input v-model="reviewForm.reviewer" />
+          </el-form-item>
+          <el-form-item label="复核意见" prop="review_opinion">
+            <el-input v-model="reviewForm.review_opinion" type="textarea" :rows="3" placeholder="请填写复核意见..." />
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="handleTaskVisible = false">取消</el-button>
+          <el-button type="danger" @click="submitReview(false)">退回重办</el-button>
+          <el-button type="success" @click="submitReview(true)">复核通过</el-button>
+        </template>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { batchApi, cellarPoolApi, recordApi, statsApi } from '@/api'
+import { batchApi, cellarPoolApi, recordApi, statsApi, disposalTaskApi } from '@/api'
 
 const batches = ref<any[]>([])
 const pools = ref<any[]>([])
 const filterStatus = ref('')
+const filterRisk = ref('')
+const filterDisposal = ref('')
 const selectedBatch = ref<number | null>(null)
 const chartRef = ref<HTMLElement>()
 let chart: any = null
@@ -248,10 +396,16 @@ const fermentingBatches = computed(() => batches.value.filter(b => b.status === 
 const completedCount = computed(() => batches.value.filter(b => b.status === 'completed').length)
 const recordCount = computed(() => batches.value.reduce((s, b) => s + (b.record_count || 0), 0))
 const abnormalCount = ref(0)
+const pendingTasks = computed(() => batches.value.filter(b => b.disposal_status === 'pending' || b.disposal_status === 'processing').length)
+const highRiskCount = computed(() => batches.value.filter(b => b.risk_level === 'high').length)
 
 const filteredBatches = computed(() => {
-  if (!filterStatus.value) return batches.value
-  return batches.value.filter(b => b.status === filterStatus.value)
+  return batches.value.filter(b => {
+    const matchStatus = !filterStatus.value || b.status === filterStatus.value
+    const matchRisk = !filterRisk.value || b.risk_level === filterRisk.value
+    const matchDisposal = !filterDisposal.value || b.disposal_status === filterDisposal.value
+    return matchStatus && matchRisk && matchDisposal
+  })
 })
 const idlePools = computed(() => pools.value.filter(p => p.status === 'idle'))
 
@@ -288,6 +442,37 @@ const recordRules = {
   cellar_temp: [{ required: true, message: '请输入窖温', trigger: 'blur' }],
   acidity: [{ required: true, message: '请输入酸度', trigger: 'blur' }],
   alcohol: [{ required: true, message: '请输入酒度', trigger: 'blur' }],
+}
+
+const createTaskVisible = ref(false)
+const taskFormRef = ref()
+const currentBatch = ref<any>(null)
+const taskBatchDisplay = computed(() => currentBatch.value ? currentBatch.value.batch_no + ' - ' + currentBatch.value.cellar_pool_code : '')
+const defaultTaskForm = () => ({
+  batch: null, title: '', source: 'fermentation', risk_level: 'medium',
+  responsible_person: '', description: ''
+})
+const taskForm = ref<any>(defaultTaskForm())
+const taskRules = {
+  title: [{ required: true, message: '请输入任务标题', trigger: 'blur' }],
+  source: [{ required: true, message: '请选择风险来源', trigger: 'change' }],
+  risk_level: [{ required: true, message: '请选择风险等级', trigger: 'change' }],
+  responsible_person: [{ required: true, message: '请输入责任人', trigger: 'blur' }],
+}
+
+const handleTaskVisible = ref(false)
+const currentTask = ref<any>(null)
+const handleFormRef = ref()
+const handleForm = reactive({ disposal_person: '', disposal_measures: '' })
+const handleRules = {
+  disposal_person: [{ required: true, message: '请输入处置人', trigger: 'blur' }],
+  disposal_measures: [{ required: true, message: '请填写处置措施', trigger: 'blur' }],
+}
+const reviewFormRef = ref()
+const reviewForm = reactive({ reviewer: '', review_opinion: '' })
+const reviewRules = {
+  reviewer: [{ required: true, message: '请输入复核人', trigger: 'blur' }],
+  review_opinion: [{ required: true, message: '请填写复核意见', trigger: 'blur' }],
 }
 
 const formatDate = (s: string) => s ? s.replace('T', ' ').slice(0, 16) : '-'
@@ -409,7 +594,7 @@ const submitRecord = async () => {
   await recordFormRef.value.validate()
   const res: any = await recordApi.create(recordForm.value)
   if (res.is_abnormal) {
-    ElMessage.warning('检测数据存在异常：' + (res.abnormal_note || '请关注'))
+    ElMessage.warning('检测数据存在异常：' + (res.abnormal_note || '请关注并及时处置'))
   } else {
     ElMessage.success('检测记录已保存')
   }
@@ -418,6 +603,65 @@ const submitRecord = async () => {
   if (selectedBatch.value === recordForm.value.batch) {
     loadCurve(recordForm.value.batch)
   }
+}
+
+const openCreateTask = (row: any) => {
+  currentBatch.value = row
+  taskForm.value = defaultTaskForm()
+  taskForm.value.batch = row.id
+  taskForm.value.risk_level = row.risk_level === 'none' ? 'medium' : row.risk_level
+  if (row.latest_record?.is_abnormal) {
+    taskForm.value.title = row.batch_no + ' 发酵检测异常'
+    taskForm.value.description = row.latest_record.abnormal_note || ''
+    taskForm.value.source = 'fermentation'
+  } else {
+    taskForm.value.title = row.batch_no + ' 风险处置'
+  }
+  createTaskVisible.value = true
+}
+
+const submitCreateTask = async () => {
+  await taskFormRef.value.validate()
+  const payload = { ...taskForm.value }
+  await disposalTaskApi.create(payload)
+  ElMessage.success('处置任务创建成功')
+  createTaskVisible.value = false
+  loadData()
+}
+
+const openHandleTask = (task: any) => {
+  currentTask.value = { ...task }
+  handleForm.disposal_person = task.disposal_person || ''
+  handleForm.disposal_measures = task.disposal_measures || ''
+  reviewForm.reviewer = task.reviewer || ''
+  reviewForm.review_opinion = task.review_opinion || ''
+  handleTaskVisible.value = true
+}
+
+const startProcessTask = async () => {
+  if (!currentTask.value) return
+  await disposalTaskApi.startProcess(currentTask.value.id)
+  ElMessage.success('已开始处置')
+  handleTaskVisible.value = false
+  loadData()
+}
+
+const submitDisposal = async () => {
+  await handleFormRef.value.validate()
+  if (!currentTask.value) return
+  await disposalTaskApi.submitDisposal(currentTask.value.id, { ...handleForm })
+  ElMessage.success('处置措施已提交，等待复核')
+  handleTaskVisible.value = false
+  loadData()
+}
+
+const submitReview = async (passed: boolean) => {
+  await reviewFormRef.value.validate()
+  if (!currentTask.value) return
+  await disposalTaskApi.review(currentTask.value.id, { ...reviewForm, passed })
+  ElMessage.success(passed ? '复核通过' : '已退回重办')
+  handleTaskVisible.value = false
+  loadData()
 }
 
 onMounted(async () => {

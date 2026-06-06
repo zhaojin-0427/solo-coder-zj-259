@@ -1,17 +1,20 @@
-from django.db.models import Count, Avg, Sum, Q
+from django.db.models import Count, Avg, Sum, Q, F, ExpressionWrapper, fields
 from django.db.models.functions import TruncMonth
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from datetime import timedelta
+from django.utils import timezone
 
 from .models import (
     CellarPool, FermentationBatch, FermentationRecord,
-    WineQuality, AgingStorage, AgingRecord, AgingEnvRecord
+    WineQuality, AgingStorage, AgingRecord, AgingEnvRecord,
+    DisposalTask
 )
 from .serializers import (
     CellarPoolSerializer, FermentationBatchSerializer, FermentationRecordSerializer,
-    WineQualitySerializer, AgingStorageSerializer, AgingRecordSerializer, AgingEnvRecordSerializer
+    WineQualitySerializer, AgingStorageSerializer, AgingRecordSerializer, AgingEnvRecordSerializer,
+    DisposalTaskSerializer
 )
 
 
@@ -27,7 +30,7 @@ class FermentationBatchViewSet(viewsets.ModelViewSet):
         record_count=Count('records')
     )
     serializer_class = FermentationBatchSerializer
-    filterset_fields = ['status', 'cellar_pool']
+    filterset_fields = ['status', 'cellar_pool', 'risk_level', 'disposal_status']
     search_fields = ['batch_no']
 
     def perform_create(self, serializer):
@@ -39,7 +42,6 @@ class FermentationBatchViewSet(viewsets.ModelViewSet):
     def complete(self, request, pk=None):
         batch = self.get_object()
         batch.status = 'completed'
-        from django.utils import timezone
         batch.end_date = timezone.now()
         batch.save()
         batch.cellar_pool.status = 'idle'
@@ -75,6 +77,24 @@ class FermentationBatchViewSet(viewsets.ModelViewSet):
             'data': data,
             'abnormal_count': abnormal_count,
         })
+
+    @action(detail=True, methods=['post'])
+    def update_risk(self, request, pk=None):
+        batch = self.get_object()
+        risk_level = request.data.get('risk_level')
+        disposal_status = request.data.get('disposal_status')
+        responsible_person = request.data.get('responsible_person')
+        disposal_note = request.data.get('disposal_note')
+        if risk_level:
+            batch.risk_level = risk_level
+        if disposal_status:
+            batch.disposal_status = disposal_status
+        if responsible_person is not None:
+            batch.responsible_person = responsible_person
+        if disposal_note is not None:
+            batch.disposal_note = disposal_note
+        batch.save()
+        return Response(FermentationBatchSerializer(batch).data)
 
 
 class FermentationRecordViewSet(viewsets.ModelViewSet):
@@ -122,6 +142,19 @@ class FermentationRecordViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
+
+        if is_abnormal:
+            abnormal_count = batch.records.filter(is_abnormal=True).count()
+            if abnormal_count >= 3:
+                batch.risk_level = 'high'
+            elif abnormal_count >= 2:
+                batch.risk_level = 'medium'
+            else:
+                batch.risk_level = 'low'
+            if batch.disposal_status == 'none' or batch.disposal_status == 'reviewed':
+                batch.disposal_status = 'pending'
+            batch.save()
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -211,6 +244,79 @@ class AgingEnvRecordViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class DisposalTaskViewSet(viewsets.ModelViewSet):
+    queryset = DisposalTask.objects.select_related('batch', 'storage').all()
+    serializer_class = DisposalTaskSerializer
+    filterset_fields = ['status', 'risk_level', 'source', 'batch', 'storage']
+    search_fields = ['task_no', 'title', 'responsible_person']
+
+    def generate_task_no(self):
+        today = timezone.now().strftime('%Y%m%d')
+        count = DisposalTask.objects.filter(task_no__startswith=f'CZ{today}').count()
+        return f'CZ{today}{count + 1:04d}'
+
+    def perform_create(self, serializer):
+        if not serializer.validated_data.get('task_no'):
+            serializer.validated_data['task_no'] = self.generate_task_no()
+        instance = serializer.save()
+
+        batch = instance.batch
+        if batch:
+            batch.risk_level = instance.risk_level
+            if instance.status == 'pending':
+                batch.disposal_status = 'pending'
+            elif instance.status == 'processing':
+                batch.disposal_status = 'processing'
+            batch.responsible_person = instance.responsible_person or batch.responsible_person
+            batch.save()
+
+    @action(detail=True, methods=['post'])
+    def start_process(self, request, pk=None):
+        task = self.get_object()
+        task.status = 'processing'
+        task.disposal_person = request.data.get('disposal_person', task.disposal_person)
+        task.save()
+        if task.batch:
+            task.batch.disposal_status = 'processing'
+            task.batch.save()
+        return Response(DisposalTaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def submit_disposal(self, request, pk=None):
+        task = self.get_object()
+        task.status = 'completed'
+        task.disposal_measures = request.data.get('disposal_measures', '')
+        task.disposal_person = request.data.get('disposal_person', task.disposal_person)
+        task.disposal_time = timezone.now()
+        task.save()
+        if task.batch:
+            task.batch.disposal_status = 'completed'
+            task.batch.disposal_note = task.disposal_measures
+            task.batch.save()
+        return Response(DisposalTaskSerializer(task).data)
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        task = self.get_object()
+        passed = request.data.get('passed', True)
+        task.review_opinion = request.data.get('review_opinion', '')
+        task.reviewer = request.data.get('reviewer', '')
+        task.review_time = timezone.now()
+        if passed:
+            task.status = 'reviewed'
+            if task.batch:
+                task.batch.disposal_status = 'reviewed'
+                task.batch.review_time = timezone.now()
+                task.batch.save()
+        else:
+            task.status = 'returned'
+            if task.batch:
+                task.batch.disposal_status = 'returned'
+                task.batch.save()
+        task.save()
+        return Response(DisposalTaskSerializer(task).data)
+
+
 class StatsViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'])
@@ -234,6 +340,12 @@ class StatsViewSet(viewsets.ViewSet):
         abnormal_fermentation = FermentationRecord.objects.filter(is_abnormal=True).count()
         abnormal_env = AgingEnvRecord.objects.filter(is_abnormal=True).count()
 
+        high_risk_batches = FermentationBatch.objects.filter(risk_level='high').count()
+        pending_tasks = DisposalTask.objects.filter(status__in=['pending', 'processing']).count()
+        total_tasks = DisposalTask.objects.count()
+        reviewed_tasks = DisposalTask.objects.filter(status='reviewed').count()
+        disposal_rate = round(reviewed_tasks / total_tasks * 100, 2) if total_tasks > 0 else 0
+
         return Response({
             'cellar_pools': {
                 'total': total_pools,
@@ -245,6 +357,7 @@ class StatsViewSet(viewsets.ViewSet):
                 'completed': completed_batches,
                 'fermenting': fermenting_batches,
                 'abnormal_records': abnormal_fermentation,
+                'high_risk': high_risk_batches,
             },
             'wine_quality': {
                 'total': total_quality,
@@ -257,6 +370,59 @@ class StatsViewSet(viewsets.ViewSet):
                 'active_aging': active_aging,
                 'abnormal_env_records': abnormal_env,
             },
+            'disposal': {
+                'total_tasks': total_tasks,
+                'pending_tasks': pending_tasks,
+                'reviewed_tasks': reviewed_tasks,
+                'disposal_rate': disposal_rate,
+                'high_risk_batches': high_risk_batches,
+            },
+        })
+
+    @action(detail=False, methods=['get'])
+    def disposal_stats(self, request):
+        total_tasks = DisposalTask.objects.count()
+        reviewed_tasks = DisposalTask.objects.filter(status='reviewed').count()
+        disposal_rate = round(reviewed_tasks / total_tasks * 100, 2) if total_tasks > 0 else 0
+
+        completed_tasks = DisposalTask.objects.filter(
+            disposal_time__isnull=False,
+            created_at__isnull=False
+        )
+        durations = []
+        for t in completed_tasks:
+            if t.disposal_time and t.created_at:
+                hours = (t.disposal_time - t.created_at).total_seconds() / 3600
+                durations.append(hours)
+        avg_duration_hours = round(sum(durations) / len(durations), 1) if durations else 0
+
+        high_risk_batches = FermentationBatch.objects.filter(risk_level='high').count()
+        medium_risk = FermentationBatch.objects.filter(risk_level='medium').count()
+        low_risk = FermentationBatch.objects.filter(risk_level='low').count()
+        no_risk = FermentationBatch.objects.filter(risk_level='none').count()
+
+        pending = DisposalTask.objects.filter(status='pending').count()
+        processing = DisposalTask.objects.filter(status='processing').count()
+        completed = DisposalTask.objects.filter(status='completed').count()
+        returned = DisposalTask.objects.filter(status='returned').count()
+
+        return Response({
+            'disposal_rate': disposal_rate,
+            'avg_duration_hours': avg_duration_hours,
+            'high_risk_batches': high_risk_batches,
+            'risk_distribution': [
+                {'level': 'high', 'label': '高风险', 'count': high_risk_batches},
+                {'level': 'medium', 'label': '中风险', 'count': medium_risk},
+                {'level': 'low', 'label': '低风险', 'count': low_risk},
+                {'level': 'none', 'label': '无风险', 'count': no_risk},
+            ],
+            'task_status_distribution': [
+                {'status': 'pending', 'label': '待处置', 'count': pending},
+                {'status': 'processing', 'label': '处置中', 'count': processing},
+                {'status': 'completed', 'label': '待复核', 'count': completed},
+                {'status': 'reviewed', 'label': '已复核', 'count': reviewed_tasks},
+                {'status': 'returned', 'label': '已退回', 'count': returned},
+            ],
         })
 
     @action(detail=False, methods=['get'])

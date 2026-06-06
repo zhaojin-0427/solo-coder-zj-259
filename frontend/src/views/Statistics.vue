@@ -27,6 +27,18 @@
             {{ agingLoss.overall_loss_rate || 0 }}<span class="unit">%</span>
           </div>
         </div>
+        <div class="stat-card">
+          <div class="label">异常处置率</div>
+          <div class="value" style="color:#27ae60">{{ disposal.disposal_rate || 0 }}<span class="unit">%</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">平均处置时长</div>
+          <div class="value" style="color:#3498db">{{ disposal.avg_duration_hours || 0 }}<span class="unit">小时</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="label">高风险批次数</div>
+          <div class="value" style="color:#e74c3c">{{ disposal.high_risk_batches || 0 }}<span class="unit">个</span></div>
+        </div>
       </div>
     </div>
 
@@ -56,6 +68,21 @@
         <div class="chart-box">
           <div class="chart-title">月度出酒量</div>
           <div ref="monthlyChartRef" style="height:340px"></div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" style="margin-bottom:20px">
+      <el-col :span="12">
+        <div class="chart-box">
+          <div class="chart-title">批次风险等级分布</div>
+          <div ref="riskChartRef" style="height:300px"></div>
+        </div>
+      </el-col>
+      <el-col :span="12">
+        <div class="chart-box">
+          <div class="chart-title">处置任务状态分布</div>
+          <div ref="taskChartRef" style="height:300px"></div>
         </div>
       </el-col>
     </el-row>
@@ -107,13 +134,20 @@ const gradeDist = ref<any[]>([])
 const cycle = reactive<any>({ average_cycle_days: 0, by_yeast: [], cycles: [] })
 const agingLoss = reactive<any>({ overall_loss_rate: 0, list: [] })
 const monthlyOutput = ref<any[]>([])
+const disposal = reactive<any>({
+  disposal_rate: 0, avg_duration_hours: 0, high_risk_batches: 0,
+  risk_distribution: [], task_status_distribution: []
+})
 
 const yieldChartRef = ref<HTMLElement>()
 const gradeChartRef = ref<HTMLElement>()
 const cycleChartRef = ref<HTMLElement>()
 const monthlyChartRef = ref<HTMLElement>()
+const riskChartRef = ref<HTMLElement>()
+const taskChartRef = ref<HTMLElement>()
 
 let yieldChart: any, gradeChart: any, cycleChart: any, monthlyChart: any
+let riskChart: any, taskChart: any
 
 const premiumPercentage = computed(() => {
   const premium = gradeDist.value.find(x => x.grade === 'premium')
@@ -121,18 +155,20 @@ const premiumPercentage = computed(() => {
 })
 
 const loadData = async () => {
-  const [y, g, c, a, m] = await Promise.all([
+  const [y, g, c, a, m, d] = await Promise.all([
     statsApi.yieldRate(),
     statsApi.gradeDistribution(),
     statsApi.fermentationCycle(),
     statsApi.agingLoss(),
     statsApi.monthlyOutput(),
+    statsApi.disposalStats(),
   ])
   Object.assign(yieldRate, y)
   gradeDist.value = g as any
   Object.assign(cycle, c)
   Object.assign(agingLoss, a)
   monthlyOutput.value = m as any
+  Object.assign(disposal, d)
   await nextTick()
   renderCharts()
 }
@@ -229,11 +265,58 @@ const renderCharts = () => {
     })
   }
 
+  if (riskChartRef.value) {
+    if (!riskChart) riskChart = echarts.init(riskChartRef.value)
+    const data = disposal.risk_distribution || []
+    const colorMap: Record<string, string> = {
+      high: '#e74c3c', medium: '#e67e22', low: '#f1c40f', none: '#67c23a' }
+    riskChart.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { bottom: 0 },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '70%'],
+        center: ['50%', '45%'],
+        data: data.map((d: any) => ({
+          name: d.label,
+          value: d.count,
+          itemStyle: { color: colorMap[d.level] || '#95a5a6' }
+        })),
+        label: { formatter: '{b}\n{d}%' }
+      }]
+    })
+  }
+
+  if (taskChartRef.value) {
+    if (!taskChart) taskChart = echarts.init(taskChartRef.value)
+    const data = disposal.task_status_distribution || []
+    const statusColorMap: Record<string, string> = {
+      pending: '#e6a23c', processing: '#409eff', completed: '#909399', reviewed: '#67c23a', returned: '#f56c6c'
+    }
+    taskChart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 60, right: 20, top: 30, bottom: 40 },
+      xAxis: { type: 'category', data: data.map((d: any) => d.label), axisLabel: { color: '#666' } },
+      yAxis: { type: 'value', name: '数量', axisLabel: { color: '#666' } },
+      series: [{
+        type: 'bar',
+        data: data.map((d: any) => ({
+          value: d.count,
+          itemStyle: { color: statusColorMap[d.status] || '#95a5a6' }
+        })),
+        barWidth: '50%',
+        label: { show: true, position: 'top', color: '#666' }
+      }]
+    })
+  }
+
   window.addEventListener('resize', () => {
     yieldChart?.resize()
     gradeChart?.resize()
     cycleChart?.resize()
     monthlyChart?.resize()
+    riskChart?.resize()
+    taskChart?.resize()
   })
 }
 

@@ -31,6 +31,20 @@ class FermentationBatch(models.Model):
         ('completed', '已出酒'),
         ('aborted', '已终止'),
     ]
+    RISK_LEVEL_CHOICES = [
+        ('none', '无风险'),
+        ('low', '低风险'),
+        ('medium', '中风险'),
+        ('high', '高风险'),
+    ]
+    DISPOSAL_STATUS_CHOICES = [
+        ('none', '无需处置'),
+        ('pending', '待处置'),
+        ('processing', '处置中'),
+        ('completed', '已处置待复核'),
+        ('reviewed', '复核通过'),
+        ('returned', '复核退回'),
+    ]
     batch_no = models.CharField('批次号', max_length=50, unique=True)
     cellar_pool = models.ForeignKey(CellarPool, on_delete=models.PROTECT, related_name='batches', verbose_name='窖池')
     grain_ratio = models.JSONField('粮食配比', default=dict, help_text='如: {"高粱": 60, "小麦": 30, "玉米": 10}')
@@ -42,6 +56,11 @@ class FermentationBatch(models.Model):
     expected_days = models.IntegerField('预计发酵天数', default=30)
     status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='fermenting')
     end_date = models.DateTimeField('出窖时间', null=True, blank=True)
+    risk_level = models.CharField('风险等级', max_length=20, choices=RISK_LEVEL_CHOICES, default='none')
+    disposal_status = models.CharField('处置状态', max_length=20, choices=DISPOSAL_STATUS_CHOICES, default='none')
+    responsible_person = models.CharField('责任人', max_length=50, blank=True)
+    disposal_note = models.TextField('处置说明', blank=True)
+    review_time = models.DateTimeField('复核时间', null=True, blank=True)
     notes = models.TextField('备注', blank=True)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
 
@@ -164,3 +183,43 @@ class AgingEnvRecord(models.Model):
 
     def __str__(self):
         return f'{self.storage.code} - {self.record_time}'
+
+
+class DisposalTask(models.Model):
+    SOURCE_CHOICES = [
+        ('fermentation', '发酵检测异常'),
+        ('aging_env', '陈酿温湿度异常'),
+        ('manual', '人工创建'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', '待处置'),
+        ('processing', '处置中'),
+        ('completed', '已处置待复核'),
+        ('reviewed', '复核通过'),
+        ('returned', '复核退回'),
+    ]
+    batch = models.ForeignKey(FermentationBatch, on_delete=models.CASCADE, related_name='disposal_tasks', verbose_name='发酵批次', null=True, blank=True)
+    storage = models.ForeignKey(AgingStorage, on_delete=models.CASCADE, related_name='disposal_tasks', verbose_name='陈酿库位', null=True, blank=True)
+    task_no = models.CharField('任务编号', max_length=50, unique=True)
+    source = models.CharField('风险来源', max_length=20, choices=SOURCE_CHOICES, default='manual')
+    risk_level = models.CharField('风险等级', max_length=20, choices=FermentationBatch.RISK_LEVEL_CHOICES, default='medium')
+    title = models.CharField('任务标题', max_length=200)
+    description = models.TextField('风险描述', blank=True)
+    abnormal_record_id = models.IntegerField('关联异常记录ID', null=True, blank=True)
+    responsible_person = models.CharField('责任人(酿酒师)', max_length=50, blank=True)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default='pending')
+    disposal_measures = models.TextField('处置措施', blank=True)
+    disposal_person = models.CharField('处置人', max_length=50, blank=True)
+    disposal_time = models.DateTimeField('处置时间', null=True, blank=True)
+    review_opinion = models.TextField('复核意见', blank=True)
+    reviewer = models.CharField('复核人', max_length=50, blank=True)
+    review_time = models.DateTimeField('复核时间', null=True, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        db_table = 'disposal_task'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.task_no

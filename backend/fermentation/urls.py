@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CellarPoolViewSet, FermentationBatchViewSet, FermentationRecordViewSet,
     WineQualityViewSet, AgingStorageViewSet, AgingRecordViewSet, AgingEnvRecordViewSet,
-    StatsViewSet
+    DisposalTaskViewSet, StatsViewSet
 )
 
 router = DefaultRouter()
@@ -14,6 +14,7 @@ router.register(r'wine-qualities', WineQualityViewSet)
 router.register(r'aging-storages', AgingStorageViewSet)
 router.register(r'aging-records', AgingRecordViewSet)
 router.register(r'aging-env-records', AgingEnvRecordViewSet)
+router.register(r'disposal-tasks', DisposalTaskViewSet)
 router.register(r'stats', StatsViewSet, basename='stats')
 
 urlpatterns = [
